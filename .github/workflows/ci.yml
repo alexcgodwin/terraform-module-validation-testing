@@ -1,0 +1,46 @@
+name: Terraform Module Validation CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  native-and-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v6
+        with: {python-version: "3.12"}
+      - uses: hashicorp/setup-terraform@v4
+        with: {terraform_version: "~> 1.9", terraform_wrapper: false}
+      - run: terraform fmt -check -recursive modules examples
+      - run: terraform -chdir=modules/workload-contract init -backend=false -input=false
+      - run: terraform -chdir=modules/workload-contract validate
+      - run: terraform -chdir=modules/workload-contract test
+      - run: terraform -chdir=examples/dev init -backend=false -input=false
+      - run: terraform -chdir=examples/dev validate
+      - uses: terraform-linters/setup-tflint@v5
+        with: {tflint_version: v0.59.1}
+      - run: tflint --init
+      - run: tflint --chdir modules/workload-contract
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/check_repository.py
+  terratest-local-lifecycle:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: terratest
+    steps:
+      - uses: actions/checkout@v5
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v6
+        with: {go-version: "1.23.12"}
+      - uses: hashicorp/setup-terraform@v4
+        with: {terraform_version: "~> 1.9", terraform_wrapper: false}
+      - run: go mod tidy
+      - run: go test -v -timeout 12m ./...
